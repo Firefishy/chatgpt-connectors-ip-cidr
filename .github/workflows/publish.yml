@@ -1,0 +1,57 @@
+name: Publish ChatGPT Connector CIDRs
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/configure-pages@v5
+
+      - name: Generate CIDR list
+        run: |
+          set -euo pipefail
+          mkdir -p public
+
+          curl -fsSL --retry 3 \
+            https://openai.com/chatgpt-connectors.json \
+            | jq -r '
+                .prefixes[]
+                | (.ipv4Prefix?, .ipv6Prefix?)
+                | select(type == "string" and length > 0)
+              ' \
+            | LC_ALL=C sort -u > public/chatgpt-connectors.txt
+
+          test -s public/chatgpt-connectors.txt
+
+          printf '%s\n' \
+            '<a href="chatgpt-connectors.txt">ChatGPT Connector CIDRs</a>' \
+            > public/index.html
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
