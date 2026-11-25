@@ -33,6 +33,8 @@ jobs:
           set -euo pipefail
           mkdir -p public
 
+          printf '# Generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            > public/chatgpt-connectors.txt
           curl -fsSL --retry 3 \
             https://openai.com/chatgpt-connectors.json \
             | jq -r '
@@ -40,18 +42,40 @@ jobs:
                 | (.ipv4Prefix?, .ipv6Prefix?)
                 | select(type == "string" and length > 0)
               ' \
-            | LC_ALL=C sort -u > public/chatgpt-connectors.txt
+            | LC_ALL=C sort -u >> public/chatgpt-connectors.txt
 
-          test -s public/chatgpt-connectors.txt
+          grep -qv '^# Generated: ' public/chatgpt-connectors.txt
 
           printf '%s\n' \
             '<a href="chatgpt-connectors.txt">ChatGPT Connector CIDRs</a>' \
             > public/index.html
 
+      - name: Check for CIDR changes
+        id: changes
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 \
+            https://firefishy.github.io/chatgpt-connectors-ip-cidr/chatgpt-connectors.txt \
+            -o /tmp/published-chatgpt-connectors.txt
+
+          sed '/^# Generated: /d' public/chatgpt-connectors.txt \
+            > /tmp/new-chatgpt-connectors.txt
+          sed '/^# Generated: /d' /tmp/published-chatgpt-connectors.txt \
+            > /tmp/old-chatgpt-connectors.txt
+
+          if grep -q '^# Generated: ' /tmp/published-chatgpt-connectors.txt \
+            && cmp -s /tmp/new-chatgpt-connectors.txt /tmp/old-chatgpt-connectors.txt; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/upload-pages-artifact@v5
+        if: steps.changes.outputs.changed == 'true'
         with:
           path: public
 
       - name: Deploy to GitHub Pages
         id: deployment
+        if: steps.changes.outputs.changed == 'true'
         uses: actions/deploy-pages@v5
